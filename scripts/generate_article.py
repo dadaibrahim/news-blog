@@ -71,7 +71,10 @@ def call_gemini(prompt):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY not set")
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    # Rolling alias: Google hot-swaps this to the current stable Flash release,
+    # so we don't 404 every time a pinned model id (e.g. gemini-2.5-flash) is
+    # retired. See https://ai.google.dev/gemini-api/docs/models
+    model = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         f"?key={api_key}"
@@ -139,8 +142,10 @@ def draft_with_fallback(prompt):
         try:
             print(f"Trying provider: {name}")
             text = fn(prompt)
+            print(f"Raw response from {name}: {text[:300]!r}")
+            post = extract_json(text)
             print(f"Provider succeeded: {name}")
-            return text, name
+            return post, name
         except Exception as exc:  # noqa: BLE001
             print(f"Provider failed: {name} -> {exc}", file=sys.stderr)
             last_err = exc
@@ -153,6 +158,8 @@ def extract_json(text):
     text = re.sub(r"```$", "", text).strip()
     start = text.find("{")
     end = text.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        raise ValueError(f"No JSON object found in response: {text[:200]!r}")
     return json.loads(text[start : end + 1])
 
 
@@ -170,8 +177,7 @@ def main():
 
     story = random.choice(stories)
     prompt = build_prompt(story)
-    raw_text, provider = draft_with_fallback(prompt)
-    post = extract_json(raw_text)
+    post, provider = draft_with_fallback(prompt)
 
     slug = slugify(post.get("slug") or post["title"])
     pub_date = time.strftime("%Y-%m-%d")
