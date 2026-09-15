@@ -1,0 +1,43 @@
+name: Auto Publish News Post
+
+on:
+  schedule:
+    - cron: '30 3 * * *'   # 9:00 AM IST daily (3:30 UTC)
+  workflow_dispatch: {}     # lets you trigger a run manually from the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install feedparser
+
+      - name: Generate article (Gemini -> OpenRouter -> Groq fallback)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: python scripts/generate_article.py
+
+      - name: Commit and push
+        run: |
+          git config user.name "news-blog-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/content/blog
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Add post: ${POST_SLUG} (via ${POST_PROVIDER})"
+          git push
